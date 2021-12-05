@@ -1,0 +1,18 @@
+{
+  "env": {
+    "development": {
+      "presets": ["env"],
+      "plugins": [
+        "add-module-exports",
+	"transform-runtime"
+      ]
+    },
+    "production": {
+      "presets": ["env"],
+      "plugins": [
+        "add-module-exports",
+	"transform-runtime"	
+      ]
+    }
+  }
+}

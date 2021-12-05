@@ -8,6 +8,8 @@ Gunnery.js makes [GUN](https://gun.eco) easier to use. It is still under heavy c
 yarn add gunnery
 ```
 
+## Quick Example
+
 ```js
 import gunnery from "gunnery"
 

@@ -79,8 +79,8 @@ export default class db {
       propSatisfies(isNil, "."),
       o(is(Object), last),
     ])
-    const opt = ifElse(isOpt, last, always({}))(args)
-    const keys = when(isOpt, init)(args)
+    const opt = ifElse(o(isOpt, last), last, always({}))(args)
+    const keys = when(o(isOpt, last), init)(args)
     return [opt, keys]
   }
 
@@ -173,8 +173,7 @@ export default class db {
   }
 
   async get(...args) {
-    const [opt, keys] = this._args(args)
-    return await this._get(this.auth_user, opt, ...keys)
+    return await this._get(this.auth_user, ...args)
   }
 
   async _put(node, val, ...args) {
@@ -188,7 +187,6 @@ export default class db {
     const hash = opt.hash
       ? await SEA.work(JSON.stringify(enc), null, null, { name: "SHA-256" })
       : enc
-    console.log(hash)
     if (opt.hash) {
       keys[keys.length - 1] += hash
       enc = JSON.stringify(enc)
@@ -203,8 +201,7 @@ export default class db {
   }
 
   async gput(val, ...args) {
-    const [opt, keys] = this._args(args)
-    return await this._put(this.gun, val, opt, ...keys)
+    return await this._put(this.gun, val, ...args)
   }
 
   async auth(alias, pass) {

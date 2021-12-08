@@ -89,6 +89,9 @@ Most functions take an optional `opt` object.
 ##### `sign`
 - `true` sign the data, so the data owner can be verified later
 
+##### `aec`
+- `true` encrypt the data with AEC-GCM key
+
 ##### `hash`
 - `true` freeze the data with hash, this option has to be used with `#` in the keys
 

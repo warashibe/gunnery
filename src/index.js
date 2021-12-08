@@ -177,6 +177,7 @@ export default class db {
     await this.put(hex, "_key", { enc: true, sign: true })
     return key
   }
+
   async _user(pub) {
     const user = this.gun.user(pub)
     await new Promise(ret => {
@@ -294,10 +295,37 @@ export default class db {
       })
     })
   }
+  async decryptMessage(key, iv, ciphertext) {
+    return await window.crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: iv,
+      },
+      key,
+      ciphertext
+    )
+  }
 
   async _decrypt(data, opt) {
     data = opt.hash ? JSON.parse(data) : data
     if (isNil(data)) return data
+    if (opt.aes) {
+      const tx = new TextDecoder()
+      const pair = await this.auth_user.pair()
+      const msg = await SEA.verify(data.key, pair.pub)
+      const key = await window.crypto.subtle.importKey(
+        "raw",
+        Buffer.from(await SEA.decrypt(msg, pair), "hex").buffer,
+        "AES-GCM",
+        true,
+        ["encrypt", "decrypt"]
+      )
+      const iv = Buffer.from(data.iv, "hex").buffer
+      const mess = Buffer.from(await SEA.verify(data.data, pair.pub), "hex")
+        .buffer
+      const buf = await this.decryptMessage(key, iv, mess)
+      data = JSON.parse(tx.decode(await this.decryptMessage(key, iv, mess)))
+    }
     if (opt.sign) {
       data = await SEA.verify(data, await this.auth_user.pair())
     }
@@ -336,6 +364,34 @@ export default class db {
     return await this._get(this.auth_user, ...args)
   }
 
+  async genKey() {
+    const iv = window.crypto.getRandomValues(new Uint8Array(12))
+    let key = await window.crypto.subtle.generateKey(
+      {
+        name: "AES-GCM",
+        length: 256,
+      },
+      true,
+      ["encrypt", "decrypt"]
+    )
+    return { iv, key }
+  }
+  getMessageEncoding(mess) {
+    const enc = new TextEncoder()
+    return enc.encode(mess)
+  }
+
+  async encryptMessage(key, iv, mess) {
+    return await window.crypto.subtle.encrypt(
+      {
+        name: "AES-GCM",
+        iv: iv,
+      },
+      key,
+      this.getMessageEncoding(mess)
+    )
+  }
+
   async _put(node, val, ...args) {
     const [opt, keys] = this._args(args)
     await this._getUser(opt)
@@ -346,6 +402,25 @@ export default class db {
       : val
     if (opt.sign) {
       enc = await SEA.sign(enc, await this.auth_user.pair())
+    }
+    if (opt.aes) {
+      const { iv, key } = await this.genKey()
+      const enc2 = await this.encryptMessage(key, iv, JSON.stringify(enc))
+      const pair = await this.auth_user.pair()
+      const _data = await SEA.sign(this._buf2hex(enc2), pair)
+      const key_data = await SEA.sign(
+        await SEA.encrypt(
+          this._buf2hex(await window.crypto.subtle.exportKey("raw", key)),
+          pair
+        ),
+        pair
+      )
+      enc = {
+        data: _data,
+        id: last(keys),
+        iv: this._buf2hex(iv),
+        key: key_data,
+      }
     }
     const hash = opt.hash
       ? await SEA.work(JSON.stringify(enc), null, null, { name: "SHA-256" })

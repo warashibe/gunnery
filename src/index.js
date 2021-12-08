@@ -1,6 +1,12 @@
 import GUN from "gun"
 require("gun/sea")
 import {
+  values,
+  mapObjIndexed,
+  compose,
+  sortBy,
+  prop,
+  slice,
   propSatisfies,
   allPass,
   mergeLeft,
@@ -23,6 +29,97 @@ import {
   complement,
 } from "ramda"
 
+export class page {
+  constructor(d, type, ...args) {
+    this.type = type
+    this.node = d
+    ;[this.opt, this.keys] = d._args(args)
+    this.items = {}
+    this.arr = {}
+    this.last = null
+    this.cursor = 1
+    this.isNext = true
+  }
+  async put(id, data) {
+    return this.type === "u"
+      ? null
+      : this.type === "g"
+      ? await this.node.gput(
+          data,
+          ...this.keys,
+          `${Date.now()}:${id}${this.opt.hash ? "#" : ""}`,
+          this.opt
+        )
+      : await this.node.put(
+          data,
+          ...this.keys,
+          `${Date.now()}:${id}${this.opt.hash ? "#" : ""}`,
+          this.opt
+        )
+  }
+  async init(limit = 10, to = 1000) {
+    return new Promise(async ret => {
+      let returned = false
+      await this.fetch("0", data => {
+        if (!returned && this.items.length >= limit) {
+          returned = true
+          ret(true)
+        }
+      })
+      setTimeout(() => {
+        returned = true
+        ret(true)
+      }, to)
+    })
+  }
+  parse(data, cb) {
+    try {
+      const key = data._key
+      this.items[key] = data
+      this.arr = compose(
+        sortBy(prop("_key")),
+        values,
+        mapObjIndexed((v, key) => assoc("_key", key)(v))
+      )(this.items)
+      this.last = last(this.arr)._key
+      if (is(Function)(cb)) cb(data)
+    } catch (e) {
+      console.log(e)
+    }
+  }
+  async fetch(start = "0", cb) {
+    this.type === "g"
+      ? await this.node.gmap(
+          ...this.keys,
+          { ".": { ">": start || "0" }, "%": 50000 },
+          this.opt,
+          data => this.parse(data, cb)
+        )
+      : this.type === ""
+      ? await this.node.map(
+          ...this.keys,
+          { ".": { ">": start || "0" }, "%": 50000 },
+          this.opt,
+          data => this.parse(data, cb)
+        )
+      : await this.node.umap(
+          this.type,
+          ...this.keys,
+          { ".": { ">": start || "0" }, "%": 50000 },
+          this.opt,
+          data => this.parse(data, cb)
+        )
+  }
+  async next(limit = 10, start) {
+    start = defaultTo(this.cursor)(start)
+    const arr = slice(start - 1, start - 1 + limit)(this.arr)
+    this.cursor += arr.length
+    this.fetch(this.last)
+    this.isNext = !isNil(this.arr[this.cursor - 1])
+    return arr
+  }
+}
+
 export default class db {
   constructor(opt = {}) {
     this.gun = GUN(opt)
@@ -30,7 +127,15 @@ export default class db {
     this.pairs = {}
     this.auth_user = null
   }
-
+  upage(pub, ...args) {
+    return new page(this, pub, ...args)
+  }
+  gpage(...args) {
+    return new page(this, "g", ...args)
+  }
+  page(...args) {
+    return new page(this, "", ...args)
+  }
   async _user(pub) {
     const user = this.gun.user(pub)
     await new Promise(ret => {
@@ -74,13 +179,16 @@ export default class db {
   }
 
   _args(args) {
-    const isOpt = allPass([
-      propSatisfies(isNil, "#"),
-      propSatisfies(isNil, "."),
-      o(is(Object), last),
-    ])
-    const opt = ifElse(o(isOpt, last), last, always({}))(args)
-    const keys = when(o(isOpt, last), init)(args)
+    const isOpt = o(
+      allPass([
+        propSatisfies(isNil, "#"),
+        propSatisfies(isNil, "."),
+        is(Object),
+      ]),
+      last
+    )
+    const opt = ifElse(isOpt, last, always({}))(args)
+    const keys = when(isOpt, init)(args)
     return [opt, keys]
   }
 
@@ -113,6 +221,7 @@ export default class db {
   }
 
   async umap(pub, ...args) {
+    console.log(pub)
     if (isNil(this.users[pub])) await this._user(pub)
     return await this._on({ map: true }, this.users[pub], ...args)
   }
@@ -159,7 +268,10 @@ export default class db {
     let _node = this.node(node, ...keys)
     if (opt.map) _node = _node.map()
     _node[opt.on ? "on" : "once"](async (data, key, msg, ev) => {
-      cb(await this._decrypt(data, opt), opt.on ? ev.off : null)
+      cb(
+        mergeLeft({ _key: key }, await this._decrypt(data, opt)),
+        opt.on ? ev.off : null
+      )
     })
   }
 

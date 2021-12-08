@@ -56,6 +56,14 @@ await db.map("key1",(data)=>{
 await db.on("key1","key2", (data)=>{
   console.log(data)
 })
+
+// pagination
+const page = await db.page("key1")
+await page.put("key2", data)
+const p1 = await page.next()
+const p2 = await page.next()
+const p3 = await page.next()
+
 ```
 
 ## API
@@ -217,4 +225,20 @@ Map and listen to changes of public child nodes.
 ```js
 await db.gmapon("list", (data, off)=>{ console.log(data) })
 ```
+### pagination
 
+Pagination is hard with graph database, but gunnery makes it simple.
+
+### page (...path)
+
+### upage (pub, ...path)
+
+### gpage (...path)
+
+```js
+const page = await db.page("articles")
+await page.init()
+const page.put(data)
+const page1 = await page.next()
+const page2 = await page.next()
+```

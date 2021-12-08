@@ -58,6 +58,7 @@ export class page {
           this.opt
         )
   }
+
   async init(limit = 10, to = 1000) {
     return new Promise(async ret => {
       let returned = false
@@ -73,6 +74,7 @@ export class page {
       }, to)
     })
   }
+
   parse(data, cb) {
     try {
       const key = data._key
@@ -88,6 +90,7 @@ export class page {
       console.log(e)
     }
   }
+
   async fetch(start = "0", cb) {
     this.type === "g"
       ? await this.node.gmap(
@@ -111,6 +114,7 @@ export class page {
           data => this.parse(data, cb)
         )
   }
+
   async next(limit = 10, start) {
     start = defaultTo(this.cursor)(start)
     const arr = slice(start - 1, start - 1 + limit)(this.arr)
@@ -139,6 +143,43 @@ export default class db {
 
   page(...args) {
     return new page(this, "", ...args)
+  }
+
+  async sget(pub, ...args) {
+    const pair = await this.auth_user.pair()
+    if (isNil(this.users[pub])) await this._user(pub)
+    const key_data = await this.uget(pub, "_share", pair.pub, ...args)
+    const dec = await SEA.decrypt(
+      key_data,
+      await SEA.secret(this.pairs[pub], pair)
+    )
+    const rawKey = Buffer.from(dec, "hex").buffer
+    const key = await window.crypto.subtle.importKey(
+      "raw",
+      rawKey,
+      "AES-GCM",
+      true,
+      ["encrypt", "decrypt"]
+    )
+    const data = await this.uget(pub, ...args)
+    const iv = Buffer.from(data.iv, "hex").buffer
+    const mess = Buffer.from(await SEA.verify(data.data, pub), "hex").buffer
+    let tx = new TextDecoder()
+    return JSON.parse(tx.decode(await this.decryptMessage(key, iv, mess)))
+  }
+  async share(pub, ...args) {
+    const item = await this.get(...args)
+    const key = item.key
+    const id = item.id
+    const pair = await this.auth_user.pair()
+    const msg = await SEA.verify(key, pair.pub)
+    const hex = await SEA.decrypt(msg, pair)
+    if (isNil(this.users[pub])) await this._user(pub)
+    const enc = await SEA.encrypt(
+      hex,
+      await SEA.secret(this.pairs[pub].epub, pair)
+    )
+    await this.put(enc, "_share", pub, ...args)
   }
 
   async getKey() {

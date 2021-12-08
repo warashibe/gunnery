@@ -144,6 +144,13 @@ Put data to public.
 await db.gput(data, "key1", "key2")
 ```
 
+#### share (pub, ...path)
+
+Share encrypted data with another user with `pub`.
+```js
+await db.share(pub, "key1", "key2")
+```
+
 ### Single Node Read Operations
 
 #### get (opt*, ...path)
@@ -165,6 +172,13 @@ const data = await db.uget(pub, "key1", "key2")
 Get public data.
 ```js
 const data = await db.gget("key1", "key2")
+```
+
+#### sget (pub, ...path)
+
+Get shared data. `pub` is the user who shared the data with you.
+```js
+const data = await db.sget(pub, "key1", "key2")
 ```
 
 #### on (opt*, cb* ...path)

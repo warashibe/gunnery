@@ -86,6 +86,9 @@ Most functions take an optional `opt` object.
 - `true` encrypt the data so only the currently authenticated user can read
 - *`public key`* encrypt the data so only the specified user can read
 
+##### `sign`
+- `true` sign the data, so the data owner can be verified later
+
 ##### `hash`
 - `true` freeze the data with hash, this option has to be used with `#` in the keys
 

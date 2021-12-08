@@ -40,6 +40,7 @@ export class page {
     this.cursor = 1
     this.isNext = true
   }
+
   async put(id, data) {
     return this.type === "u"
       ? null
@@ -127,14 +128,54 @@ export default class db {
     this.pairs = {}
     this.auth_user = null
   }
+
   upage(pub, ...args) {
     return new page(this, pub, ...args)
   }
+
   gpage(...args) {
     return new page(this, "g", ...args)
   }
+
   page(...args) {
     return new page(this, "", ...args)
+  }
+
+  async getKey() {
+    const key = await this.get("_key", { enc: true, sign: true })
+    if (isNil(key)) {
+      return await this.createKey()
+    } else {
+      const rawKey = Buffer.from(key, "hex").buffer
+      return await window.crypto.subtle.importKey(
+        "raw",
+        rawKey,
+        "AES-GCM",
+        true,
+        ["encrypt", "decrypt"]
+      )
+    }
+  }
+
+  _buf2hex(buffer) {
+    return [...new Uint8Array(buffer)]
+      .map(x => x.toString(16).padStart(2, "0"))
+      .join("")
+  }
+
+  async createKey() {
+    const key = await window.crypto.subtle.generateKey(
+      {
+        name: "AES-GCM",
+        length: 256,
+      },
+      true,
+      ["encrypt", "decrypt"]
+    )
+    const result = await window.crypto.subtle.exportKey("raw", key)
+    const hex = this._buf2hex(result)
+    await this.put(hex, "_key", { enc: true, sign: true })
+    return key
   }
   async _user(pub) {
     const user = this.gun.user(pub)
@@ -172,10 +213,12 @@ export default class db {
   }
 
   async _dec(val, epub, pair) {
-    return await SEA.decrypt(
-      val.data,
-      await SEA.secret(epub, defaultTo(await this.auth_user.pair())(pair))
-    )
+    return isNil(val)
+      ? val
+      : await SEA.decrypt(
+          val.data,
+          await SEA.secret(epub, defaultTo(await this.auth_user.pair())(pair))
+        )
   }
 
   _args(args) {
@@ -221,7 +264,6 @@ export default class db {
   }
 
   async umap(pub, ...args) {
-    console.log(pub)
     if (isNil(this.users[pub])) await this._user(pub)
     return await this._on({ map: true }, this.users[pub], ...args)
   }
@@ -255,12 +297,18 @@ export default class db {
 
   async _decrypt(data, opt) {
     data = opt.hash ? JSON.parse(data) : data
-    return propEq("enc", true)(opt)
+    if (isNil(data)) return data
+    if (opt.sign) {
+      data = await SEA.verify(data, await this.auth_user.pair())
+    }
+    let dec = propEq("enc", true)(opt)
       ? await this._dec(data, await this.auth_user.pair().epub)
       : has("enc")(opt)
       ? await this._dec(data, this.pairs[opt.enc].epub)
       : data
+    return dec
   }
+
   async _on(conf, node, ...args) {
     let [opt, cb, keys] = this._onargs(args)
     opt = mergeLeft(conf)(opt)
@@ -296,6 +344,9 @@ export default class db {
       : has("enc")(opt)
       ? await this._enc(val, this.pairs[opt.enc].epub)
       : val
+    if (opt.sign) {
+      enc = await SEA.sign(enc, await this.auth_user.pair())
+    }
     const hash = opt.hash
       ? await SEA.work(JSON.stringify(enc), null, null, { name: "SHA-256" })
       : enc

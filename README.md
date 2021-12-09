@@ -119,6 +119,9 @@ await db.on("key1", "key2", (data, off)=>{ console.log(data) })
 await db.get("key1", "key2", "key3", "key4", opt })
 ```
 
+##### `desc`
+- `true` save data in reverse order, only applicable to page instances.
+
 ### Authentication
 
 #### auth (alias, password)

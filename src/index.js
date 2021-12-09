@@ -42,19 +42,22 @@ export class page {
   }
 
   async put(id, data) {
+    const date = this.opt.desc
+      ? `r-${253370732400000 - Date.now()}`
+      : Date.now()
     return this.type === "u"
       ? null
       : this.type === "g"
       ? await this.node.gput(
           data,
           ...this.keys,
-          `${Date.now()}:${id}${this.opt.hash ? "#" : ""}`,
+          `${date}:${id}${this.opt.hash ? "#" : ""}`,
           this.opt
         )
       : await this.node.put(
           data,
           ...this.keys,
-          `${Date.now()}:${id}${this.opt.hash ? "#" : ""}`,
+          `${date}:${id}${this.opt.hash ? "#" : ""}`,
           this.opt
         )
   }
@@ -92,26 +95,19 @@ export class page {
   }
 
   async fetch(start = "0", cb) {
+    const cond = this.opt.desc
+      ? { ".": { ">": `r-${start}`, "<": `r-253370732400000` }, "%": 1000000 }
+      : { ".": { ">": start, "<": "253370732400000" }, "%": 1000000 }
     this.type === "g"
-      ? await this.node.gmap(
-          ...this.keys,
-          { ".": { ">": start || "0" }, "%": 50000 },
-          this.opt,
-          data => this.parse(data, cb)
+      ? await this.node.gmap(...this.keys, cond, this.opt, data =>
+          this.parse(data, cb)
         )
       : this.type === ""
-      ? await this.node.map(
-          ...this.keys,
-          { ".": { ">": start || "0" }, "%": 50000 },
-          this.opt,
-          data => this.parse(data, cb)
+      ? await this.node.map(...this.keys, cond, this.opt, data =>
+          this.parse(data, cb)
         )
-      : await this.node.umap(
-          this.type,
-          ...this.keys,
-          { ".": { ">": start || "0" }, "%": 50000 },
-          this.opt,
-          data => this.parse(data, cb)
+      : await this.node.umap(this.type, ...this.keys, cond, this.opt, data =>
+          this.parse(data, cb)
         )
   }
 
@@ -127,6 +123,7 @@ export class page {
 
 export default class db {
   constructor(opt = {}) {
+    this.me = null
     this.gun = GUN(opt)
     this.users = {}
     this.pairs = {}
@@ -500,6 +497,7 @@ export default class db {
         }
       })
     })
+    this.me = user.is
     this.pairs[user.is.pub] = user.is
     this.users[user.is.pub] = user
     this.auth_user = user

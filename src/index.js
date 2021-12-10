@@ -1,6 +1,8 @@
 import GUN from "gun"
 require("gun/sea")
 import {
+  pluck,
+  keys,
   values,
   mapObjIndexed,
   compose,
@@ -39,6 +41,9 @@ export class page {
     this.last = null
     this.cursor = 1
     this.isNext = true
+    this.listeners = {}
+    this.llen = 0
+    this.exists = {}
   }
 
   async put(id, data) {
@@ -61,24 +66,46 @@ export class page {
           this.opt
         )
   }
-
+  on(cb) {
+    this.listeners[this.llen] = cb
+    return this.llen++
+  }
+  off(id) {
+    delete this.listeners[id]
+  }
   async init(limit = 10, to = 1000) {
     return new Promise(async ret => {
       let returned = false
-      await this.fetch("0", data => {
+      await this.checkNew(data => {
         if (!returned && this.items.length >= limit) {
-          returned = true
-          ret(true)
+          if (!returned) {
+            returned = true
+            ret(true)
+          }
         }
       })
       setTimeout(() => {
-        returned = true
-        ret(true)
+        if (!returned) {
+          returned = true
+          ret(true)
+        }
       }, to)
     })
   }
 
-  parse(data, cb) {
+  async checkNew(cb) {
+    await this.listenNew((data, key) => {
+      for (let k in this.listeners) {
+        if (isNil(this.exists[key])) {
+          this.listeners[k](data)
+        }
+      }
+      this.exists[key] = true
+      cb(data, key)
+    })
+  }
+
+  parse(data, cb, broadcast = false) {
     try {
       const key = data._key
       this.items[key] = data
@@ -88,26 +115,32 @@ export class page {
         mapObjIndexed((v, key) => assoc("_key", key)(v))
       )(this.items)
       this.last = last(this.arr)._key
-      if (is(Function)(cb)) cb(data)
+      if (is(Function)(cb)) cb(data, key)
+      if (!broadcast) this.exists[key] = true
     } catch (e) {
       console.log(e)
     }
   }
 
-  async fetch(start = "0", cb) {
+  async listenNew(cb) {
+    await this.fetch("0", cb, true)
+  }
+
+  async fetch(start = "0", cb, broadcast = false) {
+    const d = Date.now()
     const cond = this.opt.desc
       ? { ".": { ">": `r-${start}`, "<": `r-253370732400000` }, "%": 1000000 }
       : { ".": { ">": start, "<": "253370732400000" }, "%": 1000000 }
     this.type === "g"
-      ? await this.node.gmap(...this.keys, cond, this.opt, data =>
-          this.parse(data, cb)
-        )
+      ? await this.node.gmap(...this.keys, cond, this.opt, data => {
+          this.parse(data, cb, broadcast)
+        })
       : this.type === ""
       ? await this.node.map(...this.keys, cond, this.opt, data =>
-          this.parse(data, cb)
+          this.parse(data, cb, broadcast)
         )
       : await this.node.umap(this.type, ...this.keys, cond, this.opt, data =>
-          this.parse(data, cb)
+          this.parse(data, cb, broadcast)
         )
   }
 
@@ -414,6 +447,7 @@ export default class db {
     )
     return { iv, key }
   }
+
   getMessageEncoding(mess) {
     const enc = new TextEncoder()
     return enc.encode(mess)

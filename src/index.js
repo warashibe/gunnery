@@ -1,6 +1,8 @@
 import GUN from "gun"
 require("gun/sea")
 import {
+  filter,
+  findIndex,
   pluck,
   keys,
   values,
@@ -8,6 +10,7 @@ import {
   compose,
   sortBy,
   prop,
+  remove,
   slice,
   propSatisfies,
   allPass,
@@ -37,7 +40,7 @@ export class page {
     this.node = d
     ;[this.opt, this.keys] = d._args(args)
     this.items = {}
-    this.arr = {}
+    this.arr = []
     this.last = null
     this.cursor = 1
     this.isNext = true
@@ -45,11 +48,25 @@ export class page {
     this.llen = 0
     this.exists = {}
   }
-
+  async del(id) {
+    const ind = findIndex(v => {
+      return v._key.split(":")[1] === id
+    })(this.arr)
+    const data = { deleted: true }
+    const res =
+      this.type === "u" || isNil(this.arr[ind])
+        ? null
+        : this.type === "g"
+        ? await this.node.gput(data, ...this.keys, this.arr[ind]._key, this.opt)
+        : await this.node.put(data, ...this.keys, this.arr[ind]._key, this.opt)
+    if (!isNil(res)) {
+      delete this.items[this.arr[ind]._key]
+      this.arr = remove(ind, 1)(this.arr)
+    }
+    return res
+  }
   async put(id, data) {
-    const date = this.opt.desc
-      ? `r-${253370732400000 - Date.now()}`
-      : Date.now()
+    const date = this.opt.desc ? `${253370732400000 - Date.now()}` : Date.now()
     return this.type === "u"
       ? null
       : this.type === "g"
@@ -66,18 +83,21 @@ export class page {
           this.opt
         )
   }
+
   on(cb) {
     this.listeners[this.llen] = cb
     return this.llen++
   }
+
   off(id) {
     delete this.listeners[id]
   }
+
   async init(limit = 10, to = 1000) {
     return new Promise(async ret => {
       let returned = false
       await this.checkNew(data => {
-        if (!returned && this.items.length >= limit) {
+        if (!returned && this.arr.length >= limit) {
           if (!returned) {
             returned = true
             ret(true)
@@ -94,27 +114,33 @@ export class page {
   }
 
   async checkNew(cb) {
-    await this.listenNew((data, key) => {
-      for (let k in this.listeners) {
-        if (isNil(this.exists[key])) {
-          this.listeners[k](data)
+    await this.fetch(
+      "0",
+      (data, key) => {
+        for (let k in this.listeners) {
+          if (isNil(this.exists[key])) {
+            this.listeners[k](data)
+          }
         }
-      }
-      this.exists[key] = true
-      cb(data, key)
-    })
+        this.exists[key] = true
+        cb(data, key)
+      },
+      true
+    )
   }
 
   parse(data, cb, broadcast = false) {
     try {
       const key = data._key
-      this.items[key] = data
-      this.arr = compose(
-        sortBy(prop("_key")),
-        values,
-        mapObjIndexed((v, key) => assoc("_key", key)(v))
-      )(this.items)
-      this.last = last(this.arr)._key
+      if (!isNil(data) && data.deleted !== true) {
+        this.items[key] = data
+        this.arr = compose(
+          sortBy(prop("_key")),
+          values,
+          mapObjIndexed((v, key) => assoc("_key", key)(v))
+        )(this.items)
+        this.last = last(this.arr)._key
+      }
       if (is(Function)(cb)) cb(data, key)
       if (!broadcast) this.exists[key] = true
     } catch (e) {
@@ -122,23 +148,17 @@ export class page {
     }
   }
 
-  async listenNew(cb) {
-    await this.fetch("0", cb, true)
-  }
-
   async fetch(start = "0", cb, broadcast = false) {
     const d = Date.now()
-    const cond = this.opt.desc
-      ? { ".": { ">": `r-${start}`, "<": `r-253370732400000` }, "%": 1000000 }
-      : { ".": { ">": start, "<": "253370732400000" }, "%": 1000000 }
+    const cond = { ".": { ">": `${start}` }, "%": 1000000 }
     this.type === "g"
       ? await this.node.gmap(...this.keys, cond, this.opt, data => {
           this.parse(data, cb, broadcast)
         })
       : this.type === ""
-      ? await this.node.map(...this.keys, cond, this.opt, data =>
+      ? await this.node.map(...this.keys, cond, this.opt, data => {
           this.parse(data, cb, broadcast)
-        )
+        })
       : await this.node.umap(this.type, ...this.keys, cond, this.opt, data =>
           this.parse(data, cb, broadcast)
         )
@@ -148,7 +168,7 @@ export class page {
     start = defaultTo(this.cursor)(start)
     const arr = slice(start - 1, start - 1 + limit)(this.arr)
     this.cursor += arr.length
-    this.fetch(this.last)
+    this.fetch(this.last || "0")
     this.isNext = !isNil(this.arr[this.cursor - 1])
     return arr
   }
@@ -197,6 +217,7 @@ export default class db {
     let tx = new TextDecoder()
     return JSON.parse(tx.decode(await this.decryptMessage(key, iv, mess)))
   }
+
   async share(pub, ...args) {
     const item = await this.get(...args)
     const key = item.key
@@ -276,11 +297,10 @@ export default class db {
   }
 
   async _enc(val, epub, pair) {
+    const _pair = defaultTo(await this.auth_user.pair())(pair)
     return {
-      data: await SEA.encrypt(
-        val,
-        await SEA.secret(epub, defaultTo(await this.auth_user.pair())(pair))
-      ),
+      epub: _pair.epub,
+      data: await SEA.encrypt(val, await SEA.secret(epub, _pair)),
     }
   }
 
@@ -366,6 +386,7 @@ export default class db {
       })
     })
   }
+
   async decryptMessage(key, iv, ciphertext) {
     return await window.crypto.subtle.decrypt(
       {
@@ -401,9 +422,9 @@ export default class db {
       data = await SEA.verify(data, await this.auth_user.pair())
     }
     let dec = propEq("enc", true)(opt)
-      ? await this._dec(data, await this.auth_user.pair().epub)
+      ? await this._dec(data, data.epub || (await this.auth_user.pair().epub))
       : has("enc")(opt)
-      ? await this._dec(data, this.pairs[opt.enc].epub)
+      ? await this._dec(data, data.epub || this.pairs[opt.enc].epub)
       : data
     return dec
   }
@@ -467,7 +488,8 @@ export default class db {
   async _put(node, val, ...args) {
     const [opt, keys] = this._args(args)
     await this._getUser(opt)
-    let enc = propEq("enc", true)(opt)
+    let enc = null
+    enc = propEq("enc", true)(opt)
       ? await this._enc(val, await this.auth_user.pair().epub)
       : has("enc")(opt)
       ? await this._enc(val, this.pairs[opt.enc].epub)

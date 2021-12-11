@@ -1,6 +1,7 @@
 import GUN from "gun"
 require("gun/sea")
 import {
+  prepend,
   filter,
   findIndex,
   pluck,
@@ -175,7 +176,8 @@ export class page {
 }
 
 export default class db {
-  constructor(opt = {}) {
+  constructor(opt = {}, namespace) {
+    this.namespace = namespace
     this.me = null
     this.gun = GUN(opt)
     this.users = {}
@@ -291,7 +293,14 @@ export default class db {
     }
   }
 
-  node(node, ...keys) {
+  node(node, opt = {}, ...keys) {
+    if (!isNil(this.namespace)) {
+      if (opt.hash) {
+        keys[0] += "-" + this.namespace
+      } else {
+        keys = prepend(this.namespace, keys)
+      }
+    }
     for (let v of keys) node = node.get(v)
     return node
   }
@@ -381,7 +390,7 @@ export default class db {
     const [opt, keys] = this._args(args)
     await this._getUser(opt)
     return new Promise(async ret => {
-      this.node(node, ...keys).once(async data => {
+      this.node(node, opt, ...keys).once(async data => {
         ret(await this._decrypt(data, opt))
       })
     })
@@ -433,7 +442,7 @@ export default class db {
     let [opt, cb, keys] = this._onargs(args)
     opt = mergeLeft(conf)(opt)
     await this._getUser(opt)
-    let _node = this.node(node, ...keys)
+    let _node = this.node(node, opt, ...keys)
     if (opt.map) _node = _node.map()
     _node[opt.on ? "on" : "once"](async (data, key, msg, ev) => {
       cb(
@@ -497,6 +506,8 @@ export default class db {
     if (opt.sign) {
       enc = await SEA.sign(enc, await this.auth_user.pair())
     }
+    console.log(opt)
+    console.log("keys", keys)
     if (opt.aes) {
       const { iv, key } = await this.genKey()
       const enc2 = await this.encryptMessage(key, iv, JSON.stringify(enc))
@@ -524,7 +535,7 @@ export default class db {
       enc = JSON.stringify(enc)
     }
     return new Promise(async ret => {
-      this.node(node, ...keys).put(enc, data => ret(data))
+      this.node(node, opt, ...keys).put(enc, data => ret(data))
     })
   }
 
@@ -553,6 +564,25 @@ export default class db {
         }
       })
     })
+    this.me = user.is
+    this.pairs[user.is.pub] = user.is
+    this.users[user.is.pub] = user
+    this.auth_user = user
+    return user.is.pub
+  }
+  async authPair(pair, alias) {
+    const user = this.gun.user()
+    await new Promise((ret, rej) => {
+      user.auth(pair, async ack => {
+        if (!isNil(ack.err)) {
+          rej(null)
+        } else {
+          ret(true)
+        }
+      })
+    })
+    if (!isNil(alias)) user.is.alias = alias
+    if (!isNil(pair.alias)) user.is.alias = pair.alias
     this.me = user.is
     this.pairs[user.is.pub] = user.is
     this.users[user.is.pub] = user

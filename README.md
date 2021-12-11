@@ -131,6 +131,13 @@ There can be only one authenticated user per instance, but you can use multiple 
 const pub = await db.auth("alias", "password")
 ```
 
+#### authPair (pair, alias*)
+
+You can also authenticate a user with a `pair`, the optional `alias` is an arbitrary value.
+```js
+const pub = await db.authPair(pair)
+```
+
 ### Write Operations
 
 #### put (data, opt*, ...path)

@@ -506,8 +506,6 @@ export default class db {
     if (opt.sign) {
       enc = await SEA.sign(enc, await this.auth_user.pair())
     }
-    console.log(opt)
-    console.log("keys", keys)
     if (opt.aes) {
       const { iv, key } = await this.genKey()
       const enc2 = await this.encryptMessage(key, iv, JSON.stringify(enc))

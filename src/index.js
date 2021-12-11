@@ -200,7 +200,9 @@ export default class db {
   async sget(pub, ...args) {
     const pair = await this.auth_user.pair()
     if (isNil(this.users[pub])) await this._user(pub)
-    const key_data = await this.uget(pub, "_share", pair.pub, ...args)
+    const key_data = await this.uget(pub, "_share", pair.pub, ...args, {
+      timeout: 3000,
+    })
     const dec = await SEA.decrypt(
       key_data,
       await SEA.secret(this.pairs[pub], pair)
@@ -213,7 +215,7 @@ export default class db {
       true,
       ["encrypt", "decrypt"]
     )
-    const data = await this.uget(pub, ...args)
+    const data = await this.uget(pub, ...args, { timeout: 3000 })
     const iv = Buffer.from(data.iv, "hex").buffer
     const mess = Buffer.from(await SEA.verify(data.data, pub), "hex").buffer
     let tx = new TextDecoder()
@@ -222,6 +224,7 @@ export default class db {
 
   async share(pub, ...args) {
     const item = await this.get(...args)
+    console.log(item)
     const key = item.key
     const id = item.id
     const pair = await this.auth_user.pair()
@@ -275,12 +278,17 @@ export default class db {
   async _user(pub) {
     const user = this.gun.user(pub)
     await new Promise(ret => {
-      user.once(async _user => {
-        this.pairs[pub] = _user
-        ret(_user)
+      user.on(async (_user, key, msg, ev) => {
+        if (!isNil(_user)) {
+          this.pairs[pub] = _user
+          this.users[pub] = user
+          try {
+            ev.off()
+          } catch (e) {}
+          ret(_user)
+        }
       })
     })
-    this.users[pub] = user
     return pub
   }
 
@@ -390,9 +398,33 @@ export default class db {
     const [opt, keys] = this._args(args)
     await this._getUser(opt)
     return new Promise(async ret => {
-      this.node(node, opt, ...keys).once(async data => {
-        ret(await this._decrypt(data, opt))
-      })
+      let done = false
+      this.node(node, opt, ...keys)[isNil(opt.timeout) ? "once" : "on"](
+        async (data, key, msg, ev) => {
+          if (isNil(opt.timeout)) {
+            let dec = await this._decrypt(data, opt)
+            ret(dec)
+          } else {
+            if (!isNil(data)) {
+              try {
+                ev.off()
+              } catch (e) {}
+              if (!done) {
+                done = true
+                ret(await this._decrypt(data, opt))
+              }
+            }
+          }
+        }
+      )
+      if (!isNil(opt.timeout)) {
+        setTimeout(() => {
+          if (!done) {
+            done = true
+            ret(undefined)
+          }
+        }, opt.timeout)
+      }
     })
   }
 
@@ -445,8 +477,9 @@ export default class db {
     let _node = this.node(node, opt, ...keys)
     if (opt.map) _node = _node.map()
     _node[opt.on ? "on" : "once"](async (data, key, msg, ev) => {
+      const dec = await this._decrypt(data, opt)
       cb(
-        mergeLeft({ _key: key }, await this._decrypt(data, opt)),
+        isNil(dec) ? null : mergeLeft({ _key: key }, dec),
         opt.on ? ev.off : null
       )
     })

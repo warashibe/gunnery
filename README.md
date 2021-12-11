@@ -122,6 +122,9 @@ await db.get("key1", "key2", "key3", "key4", opt })
 ##### `desc`
 - `true` save data in reverse order, only applicable to page instances.
 
+##### `timeout`
+- *`millisecond`* wait until there exists data, but return `undefined` when `timeout` has passed.
+
 ### Authentication
 
 #### auth (alias, password)

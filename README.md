@@ -272,6 +272,8 @@ Pagination is hard with graph database, but gunnery makes it simple.
 const page = await db.page("articles")
 await page.init()
 const id = "testid"
+const id2 = "testid2"
+const id3 = "testid3"
 const page.put(id, data)
 const page1 = await page.next()
 const page2 = await page.next()
@@ -281,4 +283,7 @@ page.on((data)=> console.log("new item", data))
 
 // delete item
 await page.del(id)
+
+// blacklist items, so they won't show in the result of next()
+page.blacklistIds([id,id2,id3])
 ```

@@ -48,7 +48,13 @@ export class page {
     this.listeners = {}
     this.llen = 0
     this.exists = {}
+    this.blacklist = {}
   }
+
+  blacklistIds(ids) {
+    for (let v of ids) this.blacklist[v.split("#")[0].split(":")[1]] = true
+  }
+
   async del(id) {
     const ind = findIndex(v => {
       return v._key.split(":")[1] === id
@@ -66,6 +72,7 @@ export class page {
     }
     return res
   }
+
   async put(id, data) {
     const date = this.opt.desc ? `${253370732400000 - Date.now()}` : Date.now()
     return this.type === "u"
@@ -133,7 +140,11 @@ export class page {
   parse(data, cb, broadcast = false) {
     try {
       const key = data._key
-      if (!isNil(data) && data.deleted !== true) {
+      if (
+        !isNil(data) &&
+        data.deleted !== true &&
+        this.blacklist[key.split("#")[0].split(":")[1]] !== true
+      ) {
         this.items[key] = data
         this.arr = compose(
           sortBy(prop("_key")),
@@ -167,8 +178,19 @@ export class page {
 
   async next(limit = 10, start) {
     start = defaultTo(this.cursor)(start)
-    const arr = slice(start - 1, start - 1 + limit)(this.arr)
-    this.cursor += arr.length
+    let arr = []
+    let i = 0
+    for (let v of this.arr) {
+      if (i < start - 1) {
+        i += 1
+        this.cursor = i + 1
+        continue
+      }
+      if (isNil(this.blacklist[v._key.split("#")[0].split(":")[1]])) arr.push(v)
+      i += 1
+      this.cursor = i + 1
+      if (arr.length >= limit) break
+    }
     this.fetch(this.last || "0")
     this.isNext = !isNil(this.arr[this.cursor - 1])
     return arr
@@ -224,7 +246,6 @@ export default class db {
 
   async share(pub, ...args) {
     const item = await this.get(...args)
-    console.log(item)
     const key = item.key
     const id = item.id
     const pair = await this.auth_user.pair()
